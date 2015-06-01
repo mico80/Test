@@ -1,19 +1,10 @@
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
-
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLHandshakeException;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import org.apache.commons.io.FileUtils;
 import org.json.JSONArray;
@@ -24,7 +15,11 @@ public class Main {
 	public static void main(String[]args) {
 		try {
 			if(args!=null && args.length>0) {
-				getJson(args[0]);
+				String cityName = "";
+				for (int i = 0; i < args.length; i++) {
+					cityName += args[i].replace(" ", "");
+				}
+				getJson(cityName);
 			}
 			else {
 				System.out.println("Please insert a valid string. Try again...");
@@ -37,7 +32,7 @@ public class Main {
 	
 	public static void getJson(String inputStr) throws Exception
 	{
-	    String s = "https://api.goeuro.com/api/v1/suggest/position/en/name/";
+	    String s = "http://api.goeuro.com/api/v2/position/suggest/en/";
 	    s += URLEncoder.encode(inputStr, "UTF-8");
 	    URL url = new URL(s);
 	 
@@ -45,13 +40,12 @@ public class Main {
 	    Scanner scan = null; 
 	    
 	    try {
-	    	scan = new Scanner(url.openStream());
+	    	System.out.println("Opening url " + url);
+	    	scan = new Scanner(url.openStream(), "UTF-8");
 	    }
-	    catch (SSLHandshakeException e) {
-	    	System.out.println("Cannot validate the certificate. Bypassing SSL...");
-	    	disableCertificateValidation();
-	    	System.out.println("OK");
-	    	scan = new Scanner(url.openStream());
+	    catch (IOException e) {
+	    	System.out.println("ERROR: Cannot open url " + url);
+	    	return;
 	    }
 	    	
 	    String str = new String();
@@ -59,19 +53,11 @@ public class Main {
 	        str += scan.nextLine();
 	    scan.close();
 	    
-	    //str = "{\"results\":[{\"_type\":\"Position\",\"_id\":410978,\"name\":\"Potsdam, USA\",\"type\":\"location\",\"geo_position\":{\"latitude\":44.66978,\"longitude\":-74.98131}},{\"_type\":\"Position\",\"_id\":377078,\"name\":\"Potsdam, Deutschland\",\"type\":\"location\",\"geo_position\":{\"latitude\":52.39886,\"longitude\":13.06566}}]}";
-	 
 	    // Inspect the JSON object
-	    JSONObject obj = new JSONObject(str);
+	    JSONArray res = new JSONArray(str);
 	    
-	    if (obj==null || !obj.has("results")) {
+	    if (res==null || res.length()<1) {
 	    	System.out.println("No data received.");
-	    	return;
-	    }
-	    
-	    JSONArray res = obj.getJSONArray("results"); //.getJSONObject(0)
-	    if(res.length()<1) {
-	    	System.out.println("Empty data received.");
 	    	return;
 	    }
 	    
@@ -80,7 +66,6 @@ public class Main {
 	    for(int i=0; i<res.length(); i++)
 	    {
 	    	JSONObject loc = res.getJSONObject(i);
-	    	String _type = (loc.has("_type")) ? loc.getString("_type") : null;
 	    	Integer _id = (loc.has("_id") && !loc.isNull("_id")) ? loc.getInt("_id") : null; 
 	    	String name = (loc.has("name")) ? loc.getString("name") : null;
 	    	String type = (loc.has("type")) ? loc.getString("type") : null; 
@@ -89,17 +74,18 @@ public class Main {
 	    	Double latitude = (cc!=null && cc.has("latitude") && !cc.isNull("latitude")) ? cc.getDouble("latitude") : null;
 	    	Double longitude = (cc!=null && cc.has("longitude") && !cc.isNull("longitude")) ? cc.getDouble("longitude") : null;
 	    	
-	    	locations.add(new Location(_type, _id, name, type, latitude, longitude));
+	    	locations.add(new Location(_id, name, type, latitude, longitude));
 	    }
 	    
 	    File file = null;
 	    
 	    try {
 	    	file = new File("locations.csv");
-		    StringBuffer buffer = new StringBuffer();
+	    	StringBuffer buffer = new StringBuffer();
 		    for(Location location : locations) {
 		    	buffer.append(location);
 		    }
+		    System.out.println(buffer.toString());
 		    FileUtils.writeStringToFile(file, buffer.toString());
 		    System.out.println("Just wrote CSV file " + file.getAbsolutePath());
 	    }
@@ -108,43 +94,16 @@ public class Main {
 	    }
 	    
 	}
-	
-	public static void disableCertificateValidation() {
-	  // Create a trust manager that does not validate certificate chains
-	  TrustManager[] trustAllCerts = new TrustManager[] { 
-	    new X509TrustManager() {
-	      public X509Certificate[] getAcceptedIssuers() { 
-	        return new X509Certificate[0]; 
-	      }
-	      public void checkClientTrusted(X509Certificate[] certs, String authType) {}
-	      public void checkServerTrusted(X509Certificate[] certs, String authType) {}
-	  }};
-
-	  // Ignore differences between given hostname and certificate hostname
-	  HostnameVerifier hv = new HostnameVerifier() {
-	    public boolean verify(String hostname, SSLSession session) { return true; }
-	  };
-
-	  // Install the all-trusting trust manager
-	  try {
-	    SSLContext sc = SSLContext.getInstance("SSL");
-	    sc.init(null, trustAllCerts, new SecureRandom());
-	    HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
-	    HttpsURLConnection.setDefaultHostnameVerifier(hv);
-	  } catch (Exception e) {}
-	}
 }
 
 class Location {
-	public String _type; 
 	public Integer _id; 
 	public String name; 
 	public String type; 
 	public Double latitude; 
 	public Double longitude;
 	
-	public Location(String _type, Integer _id, String name, String type, Double latitude, Double longitude) {
-		this._type = _type;
+	public Location(Integer _id, String name, String type, Double latitude, Double longitude) {
 		this._id = _id;
 		this.name = name; 
 		this.type = type; 
@@ -156,8 +115,6 @@ class Location {
 	public String toString() {
 		final char COMMA = ',';
 		StringBuffer buffer = new StringBuffer();
-		if(_type!=null) buffer.append(_type);
-		buffer.append(COMMA);
 		if(_id!=null) buffer.append(_id);
 		buffer.append(COMMA);
 		if(name!=null) buffer.append(name);
